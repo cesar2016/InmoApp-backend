@@ -1,0 +1,14 @@
+{
+    "$schema": "https://railway.app/v1.schema.json",
+    "build": {
+        "builder": "NIXPACKS",
+        "nixpacksConfig": {
+            "variables": {
+                "NIXPACKS_PHP_EXTENSIONS": "ctype, curl, dom, fileinfo, filter, hash, mbstring, openssl, pcre, pdo, session, tokenizer, xml, gd"
+            }
+        }
+    },
+    "deploy": {
+        "startCommand": "php artisan migrate --force && php artisan optimize && apache2-foreground"
+    }
+}
