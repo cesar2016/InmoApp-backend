@@ -1,0 +1,8 @@
+{
+    "providers": [
+        "php"
+    ],
+    "variables": {
+        "NIXPACKS_PHP_EXTENSIONS": "ctype, curl, dom, fileinfo, filter, hash, mbstring, openssl, pcre, pdo, session, tokenizer, xml, gd"
+    }
+}
