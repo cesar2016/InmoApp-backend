@@ -21,6 +21,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('tenants', TenantController::class);
     Route::apiResource('contracts', ContractController::class);
     Route::post('/contracts/upload', [\App\Http\Controllers\Api\ContractUploadController::class, 'upload']);
+    // Diagnostic endpoint to upload and parse without auth (temporary for debugging)
+    Route::post('/diagnostic/contracts/upload', [\App\Http\Controllers\Api\ContractUploadController::class, 'diagnosticUpload']);
     Route::get('/contracts/{contract}/file', [\App\Http\Controllers\Api\ContractFileController::class, 'show']);
     Route::apiResource('payments', PaymentController::class);
     Route::apiResource('maintenances', App\Http\Controllers\Api\MaintenanceController::class);

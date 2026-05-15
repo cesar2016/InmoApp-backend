@@ -3,15 +3,16 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Services\ContractParserService;
+use App\Services\AiContractParserService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 class ContractUploadController extends Controller
 {
     protected $parser;
 
-    public function __construct(ContractParserService $parser)
+    public function __construct(AiContractParserService $parser)
     {
         $this->parser = $parser;
     }
@@ -19,13 +20,21 @@ class ContractUploadController extends Controller
     public function upload(Request $request)
     {
         $request->validate([
-            'file' => 'required|file|mimes:pdf,doc,docx|max:10240',
+            'file' => 'required|file|mimes:pdf,doc,docx,odt|max:10240',
         ]);
 
         $file = $request->file('file');
         $extension = $file->getClientOriginalExtension();
+        Log::info('Contrato upload: formato detectado', ['extension' => $extension]);
         $path = $file->storeAs('temp_contracts', time() . '_' . $file->getClientOriginalName());
         $fullPath = \Storage::disk('local')->path($path);
+        \Log::info('Contrato upload: guardado temporal', [
+            'path' => $path,
+            'fullPath' => $fullPath,
+            'originalName' => $file->getClientOriginalName(),
+            'size' => $file->getSize(),
+            'extension' => $extension,
+        ]);
 
         try {
             $data = $this->parser->parse($fullPath, $extension);
@@ -33,9 +42,9 @@ class ContractUploadController extends Controller
             // DO NOT clean up temp file here, it will be moved during Contract@store
             // Storage::delete($path);
 
-            return response()->json([
+        return response()->json([
                 'success' => true,
-                'data' => array_merge($data, ['temp_file' => $path]),
+                'data' => array_merge($data, ['temp_file' => $path, 'extension' => $extension]),
                 'message' => 'Documento procesado con éxito'
             ]);
         } catch (\Exception $e) {

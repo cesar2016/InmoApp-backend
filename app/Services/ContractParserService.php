@@ -16,13 +16,17 @@ class ContractParserService
         $this->stringsText = '';
         $text = $this->extractText($filePath, $extension);
 
+        // Convert to a cleaned plain text for more robust downstream processing
+        $plainText = preg_replace('/\s+/', ' ', $text);
+
         return [
             'tenant' => $this->extractTenant($text),
             'owner' => $this->extractOwner($text),
             'property' => $this->extractProperty($text),
             'contract' => $this->extractContractDetails($text),
             'guarantors' => $this->extractGuarantors($text),
-            'raw_text_preview' => Str::limit($text, 500)
+            'plain_text' => $plainText,
+            'raw_text_preview' => Str::limit($plainText, 500)
         ];
     }
 
@@ -50,8 +54,37 @@ class ContractParserService
             $this->stringsText = $this->getStringsText($filePath);
             $text .= "\n" . $this->stringsText;
             return $text;
+        } elseif ($extension === 'odt') {
+            // OpenDocument Text: extract content.xml and strip tags
+            $text = $this->extractTextFromOdt($filePath);
+            return $text;
         }
         return '';
+    }
+
+    private function extractTextFromOdt($filePath)
+    {
+        $text = '';
+        try {
+            $zip = new \ZipArchive();
+            if ($zip->open($filePath) === true) {
+                for ($i = 0; $i < $zip->numFiles; $i++) {
+                    $name = $zip->getNameIndex($i);
+                    if (basename($name) === 'content.xml') {
+                        $contents = $zip->getFromIndex($i);
+                        if ($contents) {
+                            $text = strip_tags($contents);
+                        }
+                        break;
+                    }
+                }
+                $zip->close();
+            }
+        } catch (\Exception $e) {
+            // ignore and return empty text
+            $text = '';
+        }
+        return $text;
     }
 
     private function getPhpWordText($phpWord)
