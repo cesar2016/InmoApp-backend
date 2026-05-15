@@ -1,7 +1,21 @@
 {
     "providers": [
-        "php"
+        "php",
+        "node"
     ],
+    "phases": {
+        "install": {
+            "commands": [
+                "npm install --ignore-scripts",
+                "composer install --no-dev --optimize-autoloader"
+            ]
+        },
+        "build": {
+            "commands": [
+                "npm run build"
+            ]
+        }
+    },
     "variables": {
         "NIXPACKS_PHP_EXTENSIONS": "ctype, curl, dom, fileinfo, filter, hash, mbstring, openssl, pcre, pdo, session, tokenizer, xml, gd"
     }
