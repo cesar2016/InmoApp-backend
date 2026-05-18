@@ -1,6 +1,10 @@
 <?php
 
 return [
+    'enabled_providers' => array_values(array_filter(array_map('trim', explode(',', env('AI_ENABLED_PROVIDERS', 'mistral,ollama,groq'))))),
+    'remote_provider_limit' => (int) env('AI_REMOTE_PROVIDER_LIMIT', 2),
+    'min_remote_text_length' => (int) env('AI_MIN_REMOTE_TEXT_LENGTH', 120),
+
     'providers' => [
         [
             'name' => 'mistral',
@@ -36,5 +40,6 @@ return [
 
     'max_tokens' => 2000,
     'temperature' => 0.1,
-    'request_timeout' => 12,
+    'request_timeout' => 8,
+    'pdf_text_timeout' => 8,
 ];

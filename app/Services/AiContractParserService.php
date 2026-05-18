@@ -9,6 +9,7 @@ use PhpOffice\PhpWord\Element\Table;
 use PhpOffice\PhpWord\Element\TextRun;
 use PhpOffice\PhpWord\IOFactory;
 use Smalot\PdfParser\Parser;
+use Symfony\Component\Process\Process;
 
 class AiContractParserService
 {
@@ -29,6 +30,10 @@ class AiContractParserService
         $text = $this->extractText($filePath, $extension);
         $plainText = preg_replace('/\s+/', ' ', $text);
 
+        if (mb_strlen(trim($plainText)) < 40) {
+            throw new \RuntimeException('No se pudo extraer texto del documento. Si es un PDF escaneado, convertílo a texto o DOCX antes de subirlo.');
+        }
+
         $result = $this->parseWithFallback($plainText);
 
         $result['plain_text'] = $plainText;
@@ -39,9 +44,22 @@ class AiContractParserService
 
     private function parseWithFallback(string $plainText): array
     {
-        $lastException = null;
+        $localResult = (new ContractParserService)->parseText($plainText);
+        $minRemoteTextLength = config('ai-parser.min_remote_text_length', 120);
 
-        foreach ($this->providers as $provider) {
+        if (mb_strlen(trim($plainText)) < $minRemoteTextLength) {
+            Log::warning('AiContractParser: texto corto, usando parser local de respaldo', [
+                'length' => mb_strlen(trim($plainText)),
+            ]);
+
+            return $this->normalizeResult($localResult);
+        }
+
+        $lastException = null;
+        $providerLimit = max(0, (int) config('ai-parser.remote_provider_limit', 2));
+        $providers = $providerLimit > 0 ? array_slice($this->providers, 0, $providerLimit) : [];
+
+        foreach ($providers as $provider) {
             try {
                 Log::info('AiContractParser: intentando con proveedor '.$provider->getName());
                 $result = $provider->parseContract(Str::limit($plainText, self::MAX_LLM_TEXT_LENGTH, ''));
@@ -58,7 +76,7 @@ class AiContractParserService
             'last_error' => $lastException?->getMessage(),
         ]);
 
-        return $this->normalizeResult((new ContractParserService)->parseText($plainText));
+        return $this->normalizeResult($localResult);
     }
 
     private function normalizeResult(array $data): array
@@ -89,10 +107,7 @@ class AiContractParserService
         $extension = strtolower($extension);
 
         if ($extension === 'pdf') {
-            $parser = new Parser;
-            $pdf = $parser->parseFile($filePath);
-
-            return $pdf->getText();
+            return $this->extractPdfText($filePath);
         } elseif ($extension === 'docx') {
             $phpWord = IOFactory::load($filePath, 'Word2007');
 
@@ -113,6 +128,28 @@ class AiContractParserService
         }
 
         return '';
+    }
+
+    private function extractPdfText(string $filePath): string
+    {
+        $process = new Process(['pdftotext', '-layout', '-enc', 'UTF-8', $filePath, '-']);
+        $process->setTimeout((int) config('ai-parser.pdf_text_timeout', 8));
+
+        try {
+            $process->run();
+            $text = trim($process->getOutput());
+
+            if ($process->isSuccessful() && $text !== '') {
+                return $text;
+            }
+        } catch (\Throwable $e) {
+            Log::warning('AiContractParser: pdftotext falló: '.$e->getMessage());
+        }
+
+        $parser = new Parser;
+        $pdf = $parser->parseFile($filePath);
+
+        return $pdf->getText();
     }
 
     private function extractTextFromOdt($filePath): string

@@ -17,6 +17,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(AiContractParserService::class, function ($app) {
             $providers = [];
             $config = config('ai-parser.providers', []);
+            $enabledProviders = config('ai-parser.enabled_providers', []);
 
             $classes = [
                 'openai' => OpenAIProvider::class,
@@ -27,6 +28,10 @@ class AppServiceProvider extends ServiceProvider
             ];
 
             foreach ($config as $cfg) {
+                if (! empty($enabledProviders) && ! in_array($cfg['name'], $enabledProviders, true)) {
+                    continue;
+                }
+
                 $class = $classes[$cfg['name']] ?? null;
                 if ($class && ! empty($cfg['api_key'])) {
                     $providers[] = new $class($cfg);

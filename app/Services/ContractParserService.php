@@ -7,6 +7,7 @@ use PhpOffice\PhpWord\Element\Table;
 use PhpOffice\PhpWord\Element\TextRun;
 use PhpOffice\PhpWord\IOFactory;
 use Smalot\PdfParser\Parser;
+use Symfony\Component\Process\Process;
 
 class ContractParserService
 {
@@ -42,10 +43,7 @@ class ContractParserService
         $extension = strtolower($extension);
 
         if ($extension === 'pdf') {
-            $parser = new Parser;
-            $pdf = $parser->parseFile($filePath);
-
-            return $pdf->getText();
+            return $this->extractPdfText($filePath);
         } elseif ($extension === 'docx') {
             $phpWord = IOFactory::load($filePath, 'Word2007');
 
@@ -72,6 +70,28 @@ class ContractParserService
         }
 
         return '';
+    }
+
+    private function extractPdfText(string $filePath): string
+    {
+        $process = new Process(['pdftotext', '-layout', '-enc', 'UTF-8', $filePath, '-']);
+        $process->setTimeout((int) config('ai-parser.pdf_text_timeout', 8));
+
+        try {
+            $process->run();
+            $text = trim($process->getOutput());
+
+            if ($process->isSuccessful() && $text !== '') {
+                return $text;
+            }
+        } catch (\Throwable $e) {
+            // Fall back to the PHP parser below.
+        }
+
+        $parser = new Parser;
+        $pdf = $parser->parseFile($filePath);
+
+        return $pdf->getText();
     }
 
     private function extractTextFromOdt($filePath)
