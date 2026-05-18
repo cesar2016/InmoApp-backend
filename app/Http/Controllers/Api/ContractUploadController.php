@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Services\AiContractParserService;
+use App\Services\ContractParserService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -13,7 +13,7 @@ class ContractUploadController extends Controller
 {
     protected $parser;
 
-    public function __construct(AiContractParserService $parser)
+    public function __construct(ContractParserService $parser)
     {
         $this->parser = $parser;
     }
