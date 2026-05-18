@@ -4,17 +4,23 @@ namespace App\Services\LLM;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use JsonException;
 
 abstract class BaseLLMProvider implements LLMProviderInterface
 {
     protected string $apiKey;
+
     protected string $baseUrl;
+
     protected string $model;
+
     protected int $maxTokens;
+
     protected float $temperature;
+
     protected int $timeout;
 
-    protected const SYSTEM_PROMPT = <<<PROMPT
+    protected const SYSTEM_PROMPT = <<<'PROMPT'
 Eres un asistente experto en extraer datos de contratos de alquiler de Argentina.
 Analiza el texto del contrato y extrae la información en formato JSON.
 Devuelve SOLO el JSON sin explicaciones ni markdown.
@@ -79,40 +85,71 @@ PROMPT;
 
     public function __construct(array $config)
     {
-        $this->apiKey = $config['api_key'];
+        $this->apiKey = $config['api_key'] ?? '';
         $this->baseUrl = $config['base_url'];
         $this->model = $config['model'];
         $this->maxTokens = $config['max_tokens'] ?? 2000;
         $this->temperature = $config['temperature'] ?? 0.1;
-        $this->timeout = $config['request_timeout'] ?? 30;
+        $this->timeout = $config['request_timeout'] ?? 12;
     }
 
     protected function callAPI(string $userText): ?string
     {
-        $response = Http::timeout($this->timeout)
+        $response = Http::connectTimeout(min(5, $this->timeout))
+            ->timeout($this->timeout)
+            ->acceptJson()
+            ->asJson()
             ->withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiKey,
-                'Content-Type' => 'application/json',
+                'Authorization' => 'Bearer '.$this->apiKey,
             ])
-            ->post($this->baseUrl . '/chat/completions', [
+            ->post($this->baseUrl.'/chat/completions', [
                 'model' => $this->model,
                 'messages' => [
                     ['role' => 'system', 'content' => self::SYSTEM_PROMPT],
-                    ['role' => 'user', 'content' => "Extrae los datos de este contrato:\n\n" . $userText],
+                    ['role' => 'user', 'content' => "Extrae los datos de este contrato:\n\n".$userText],
                 ],
                 'max_tokens' => $this->maxTokens,
                 'temperature' => $this->temperature,
             ]);
 
-        if (!$response->successful()) {
-            Log::warning('LLM provider ' . $this->getName() . ' returned status ' . $response->status(), [
+        if (! $response->successful()) {
+            Log::warning('LLM provider '.$this->getName().' returned status '.$response->status(), [
                 'body' => $response->body(),
             ]);
+
             return null;
         }
 
         $body = $response->json();
 
         return $body['choices'][0]['message']['content'] ?? null;
+    }
+
+    protected function parseJsonResponse(string $content): array
+    {
+        $cleaned = trim($content);
+        $cleaned = preg_replace('/^```(?:json)?\s*/i', '', $cleaned);
+        $cleaned = preg_replace('/\s*```$/', '', $cleaned);
+        $cleaned = trim($cleaned);
+
+        if (! str_starts_with($cleaned, '{')) {
+            $start = strpos($cleaned, '{');
+            $end = strrpos($cleaned, '}');
+
+            if ($start !== false && $end !== false && $end > $start) {
+                $cleaned = substr($cleaned, $start, $end - $start + 1);
+            }
+        }
+
+        try {
+            return json_decode($cleaned, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $e) {
+            Log::error($this->getName().': error decodificando JSON', [
+                'error' => $e->getMessage(),
+                'raw' => $cleaned,
+            ]);
+
+            throw new \RuntimeException('Error al decodificar respuesta JSON de '.$this->getName().': '.$e->getMessage());
+        }
     }
 }

@@ -24,5 +24,5 @@ return [
 
     'max_tokens' => 2000,
     'temperature' => 0.1,
-    'request_timeout' => 30,
+    'request_timeout' => 12,
 ];

@@ -5,12 +5,17 @@ namespace App\Services;
 use App\Services\LLM\LLMProviderInterface;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Smalot\PdfParser\Parser;
+use PhpOffice\PhpWord\Element\Table;
+use PhpOffice\PhpWord\Element\TextRun;
 use PhpOffice\PhpWord\IOFactory;
+use Smalot\PdfParser\Parser;
 
 class AiContractParserService
 {
+    private const MAX_LLM_TEXT_LENGTH = 20000;
+
     private array $providers;
+
     private string $stringsText = '';
 
     public function __construct(LLMProviderInterface ...$providers)
@@ -38,19 +43,22 @@ class AiContractParserService
 
         foreach ($this->providers as $provider) {
             try {
-                Log::info('AiContractParser: intentando con proveedor ' . $provider->getName());
-                $result = $provider->parseContract($plainText);
-                Log::info('AiContractParser: proveedor ' . $provider->getName() . ' respondió exitosamente');
+                Log::info('AiContractParser: intentando con proveedor '.$provider->getName());
+                $result = $provider->parseContract(Str::limit($plainText, self::MAX_LLM_TEXT_LENGTH, ''));
+                Log::info('AiContractParser: proveedor '.$provider->getName().' respondió exitosamente');
+
                 return $this->normalizeResult($result);
             } catch (\Throwable $e) {
                 $lastException = $e;
-                Log::warning('AiContractParser: proveedor ' . $provider->getName() . ' falló: ' . $e->getMessage());
+                Log::warning('AiContractParser: proveedor '.$provider->getName().' falló: '.$e->getMessage());
             }
         }
 
-        throw new \RuntimeException(
-            'Todos los proveedores de IA fallaron. Último error: ' . ($lastException?->getMessage() ?? 'desconocido')
-        );
+        Log::warning('AiContractParser: usando parser local de respaldo', [
+            'last_error' => $lastException?->getMessage(),
+        ]);
+
+        return $this->normalizeResult((new ContractParserService)->parseText($plainText));
     }
 
     private function normalizeResult(array $data): array
@@ -81,25 +89,29 @@ class AiContractParserService
         $extension = strtolower($extension);
 
         if ($extension === 'pdf') {
-            $parser = new Parser();
+            $parser = new Parser;
             $pdf = $parser->parseFile($filePath);
+
             return $pdf->getText();
         } elseif ($extension === 'docx') {
             $phpWord = IOFactory::load($filePath, 'Word2007');
+
             return $this->getPhpWordText($phpWord);
         } elseif ($extension === 'doc') {
             try {
                 $phpWord = IOFactory::load($filePath, 'MsDoc');
                 $text = $this->getPhpWordText($phpWord);
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
                 $text = '';
             }
             $this->stringsText = $this->getStringsText($filePath);
-            $text .= "\n" . $this->stringsText;
+            $text .= "\n".$this->stringsText;
+
             return $text;
         } elseif ($extension === 'odt') {
             return $this->extractTextFromOdt($filePath);
         }
+
         return '';
     }
 
@@ -107,7 +119,7 @@ class AiContractParserService
     {
         $text = '';
         try {
-            $zip = new \ZipArchive();
+            $zip = new \ZipArchive;
             if ($zip->open($filePath) === true) {
                 for ($i = 0; $i < $zip->numFiles; $i++) {
                     $name = $zip->getNameIndex($i);
@@ -121,9 +133,10 @@ class AiContractParserService
                 }
                 $zip->close();
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $text = '';
         }
+
         return $text;
     }
 
@@ -133,6 +146,7 @@ class AiContractParserService
         foreach ($phpWord->getSections() as $section) {
             $text .= $this->getRecursiveText($section);
         }
+
         return $text;
     }
 
@@ -146,13 +160,13 @@ class AiContractParserService
         } elseif (method_exists($element, 'getText')) {
             $t = $element->getText();
             if (is_string($t)) {
-                $text .= $t . "\n";
+                $text .= $t."\n";
             } elseif (method_exists($t, 'getText')) {
-                $text .= $t->getText() . "\n";
+                $text .= $t->getText()."\n";
             }
         }
 
-        if ($element instanceof \PhpOffice\PhpWord\Element\Table) {
+        if ($element instanceof Table) {
             foreach ($element->getRows() as $row) {
                 foreach ($row->getCells() as $cell) {
                     $text .= $this->getRecursiveText($cell);
@@ -160,7 +174,7 @@ class AiContractParserService
             }
         }
 
-        if ($element instanceof \PhpOffice\PhpWord\Element\TextRun) {
+        if ($element instanceof TextRun) {
             foreach ($element->getElements() as $child) {
                 if (method_exists($child, 'getText')) {
                     $text .= $child->getText();
@@ -174,10 +188,11 @@ class AiContractParserService
 
     private function getStringsText($filePath): string
     {
-        $cmd1 = 'strings "' . $filePath . '"';
-        $cmd2 = 'strings -e l "' . $filePath . '"';
+        $cmd1 = 'strings "'.$filePath.'"';
+        $cmd2 = 'strings -e l "'.$filePath.'"';
         $out1 = shell_exec($cmd1) ?: '';
         $out2 = shell_exec($cmd2) ?: '';
-        return $out1 . "\n" . $out2;
+
+        return $out1."\n".$out2;
     }
 }

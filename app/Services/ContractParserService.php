@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
-use Smalot\PdfParser\Parser;
-use PhpOffice\PhpWord\IOFactory;
 use Illuminate\Support\Str;
+use PhpOffice\PhpWord\Element\Table;
+use PhpOffice\PhpWord\Element\TextRun;
+use PhpOffice\PhpWord\IOFactory;
+use Smalot\PdfParser\Parser;
 
 class ContractParserService
 {
@@ -16,6 +18,11 @@ class ContractParserService
         $this->stringsText = '';
         $text = $this->extractText($filePath, $extension);
 
+        return $this->parseText($text);
+    }
+
+    public function parseText(string $text): array
+    {
         // Convert to a cleaned plain text for more robust downstream processing
         $plainText = preg_replace('/\s+/', ' ', $text);
 
@@ -26,7 +33,7 @@ class ContractParserService
             'contract' => $this->extractContractDetails($text),
             'guarantors' => $this->extractGuarantors($text),
             'plain_text' => $plainText,
-            'raw_text_preview' => Str::limit($plainText, 500)
+            'raw_text_preview' => Str::limit($plainText, 500),
         ];
     }
 
@@ -35,30 +42,35 @@ class ContractParserService
         $extension = strtolower($extension);
 
         if ($extension === 'pdf') {
-            $parser = new Parser();
+            $parser = new Parser;
             $pdf = $parser->parseFile($filePath);
+
             return $pdf->getText();
         } elseif ($extension === 'docx') {
             $phpWord = IOFactory::load($filePath, 'Word2007');
+
             return $this->getPhpWordText($phpWord);
         } elseif ($extension === 'doc') {
             try {
                 $phpWord = IOFactory::load($filePath, 'MsDoc');
                 $text = $this->getPhpWordText($phpWord);
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
                 $text = '';
             }
 
             // For .doc, the strings extraction (UTF-16LE) gives much cleaner text.
             // We store it separately so extraction methods can use it when needed.
             $this->stringsText = $this->getStringsText($filePath);
-            $text .= "\n" . $this->stringsText;
+            $text .= "\n".$this->stringsText;
+
             return $text;
         } elseif ($extension === 'odt') {
             // OpenDocument Text: extract content.xml and strip tags
             $text = $this->extractTextFromOdt($filePath);
+
             return $text;
         }
+
         return '';
     }
 
@@ -66,7 +78,7 @@ class ContractParserService
     {
         $text = '';
         try {
-            $zip = new \ZipArchive();
+            $zip = new \ZipArchive;
             if ($zip->open($filePath) === true) {
                 for ($i = 0; $i < $zip->numFiles; $i++) {
                     $name = $zip->getNameIndex($i);
@@ -80,10 +92,11 @@ class ContractParserService
                 }
                 $zip->close();
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             // ignore and return empty text
             $text = '';
         }
+
         return $text;
     }
 
@@ -93,6 +106,7 @@ class ContractParserService
         foreach ($phpWord->getSections() as $section) {
             $text .= $this->getRecursiveText($section);
         }
+
         return $text;
     }
 
@@ -106,15 +120,15 @@ class ContractParserService
         } elseif (method_exists($element, 'getText')) {
             $t = $element->getText();
             if (is_string($t)) {
-                $text .= $t . "\n";
+                $text .= $t."\n";
             } elseif (method_exists($t, 'getText')) {
                 // Handle cases where getText() returns a TextRun or similar
-                $text .= $t->getText() . "\n";
+                $text .= $t->getText()."\n";
             }
         }
 
         // Specific handling for Tables
-        if ($element instanceof \PhpOffice\PhpWord\Element\Table) {
+        if ($element instanceof Table) {
             foreach ($element->getRows() as $row) {
                 foreach ($row->getCells() as $cell) {
                     $text .= $this->getRecursiveText($cell);
@@ -123,7 +137,7 @@ class ContractParserService
         }
 
         // Specific handling for TextRuns (which contain multiple Text elements)
-        if ($element instanceof \PhpOffice\PhpWord\Element\TextRun) {
+        if ($element instanceof TextRun) {
             foreach ($element->getElements() as $child) {
                 if (method_exists($child, 'getText')) {
                     $text .= $child->getText();
@@ -145,7 +159,7 @@ class ContractParserService
         preg_match($pattern1, $text, $matches);
         $fullName = isset($matches[1]) ? trim($matches[1], " \t\n\r\0\x0B,") : null;
 
-        if (!$fullName) {
+        if (! $fullName) {
             // Fallback to more generic pattern
             $pattern2 = '/(?:LOCATARIO|INQUILINO|LOCATARIA)[\s\:]+([A-Z\sÁÉÍÓÚÑ]+?)(?:\s+DNI|[\s\,]+|$)/i';
             preg_match($pattern2, $text, $matches);
@@ -178,7 +192,7 @@ class ContractParserService
             'dni' => $this->findFirstDniNear($text, $fullName ?: 'LOCATARIA', true),
             'email' => $this->findEmailNear($text, $fullName ?: 'LOCATARIA'),
             'whatsapp' => $this->findPhoneNear($text, $fullName ?: 'LOCATARIA') ?: $this->findGlobalPhone($text, 'locataria'),
-            'address' => $this->findAddressNear($text, $fullName ?: 'LOCATARIA')
+            'address' => $this->findAddressNear($text, $fullName ?: 'LOCATARIA'),
         ];
     }
 
@@ -190,7 +204,7 @@ class ContractParserService
         preg_match($pattern1, $text, $matches);
         $fullName = isset($matches[1]) ? trim($matches[1], " \t\n\r\0\x0B,") : null;
 
-        if (!$fullName) {
+        if (! $fullName) {
             $pattern2 = '/(?:LOCADOR|PROPIETARIO|LOCADORA)[\s\:]+([A-Z\sÁÉÍÓÚÑ]+?)(?:\s+DNI|[\s\,]+|$)/i';
             preg_match($pattern2, $text, $matches);
             $fullName = isset($matches[1]) ? trim($matches[1]) : null;
@@ -219,7 +233,7 @@ class ContractParserService
             'dni' => $this->findFirstDniNear($text, $fullName ?: 'LOCADORA', true),
             'email' => $this->findEmailNear($text, $fullName ?: 'LOCADORA'),
             'whatsapp' => $this->findPhoneNear($text, $fullName ?: 'LOCADORA') ?: $this->findGlobalPhone($text, 'locadora'),
-            'address' => $this->findAddressNear($text, $fullName ?: 'LOCADORA')
+            'address' => $this->findAddressNear($text, $fullName ?: 'LOCADORA'),
         ];
     }
 
@@ -228,7 +242,7 @@ class ContractParserService
         // Prioritize "inmueble sito en" which is more specific to the rented object
         // Example: inmueble sito en calle Salta N° 224, de la ciudad de San Cristóbal, provincia de Santa Fe
         $pattern = '/(?:inmueble\s+sito\s+en|inmueble\s+ubicado\s+en)[\s\:]+(.*?(?:\,|\.|$))/i';
-        if (!preg_match($pattern, $text, $matches)) {
+        if (! preg_match($pattern, $text, $matches)) {
             $patternFallback = '/(?:ubicado\s+en|domicilio\s+en)[\s\:]+(.*?(?:\,|\.|$))/i';
             preg_match($patternFallback, $text, $matches);
         }
@@ -257,7 +271,7 @@ class ContractParserService
             'street' => $street,
             'number' => $number,
             'location' => $location,
-            'type' => 'Otro'
+            'type' => 'Otro',
         ];
     }
 
@@ -277,7 +291,7 @@ class ContractParserService
         }
 
         // Fallback to generic date search
-        if (!$startDate) {
+        if (! $startDate) {
             preg_match_all('/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/', $text, $dates);
             $startDate = isset($dates[0][0]) ? $this->formatDateForDb($dates[0][0]) : null;
             $endDate = isset($dates[0][1]) ? $this->formatDateForDb($dates[0][1]) : null;
@@ -312,10 +326,10 @@ class ContractParserService
         }
 
         // Fallback to global search if not found near keywords
-        if (!$amount) {
+        if (! $amount) {
             $patternPrice = '/(?:\$|PESOS)\s*([\d\.]+(?:,\d{2})?)/i';
             preg_match_all($patternPrice, $text, $priceMatches);
-            if (!empty($priceMatches[1])) {
+            if (! empty($priceMatches[1])) {
                 foreach ($priceMatches[1] as $price) {
                     $val = str_replace('.', '', $price);
                     $val = explode(',', $val)[0];
@@ -331,7 +345,7 @@ class ContractParserService
             'start_date' => $startDate,
             'end_date' => $endDate,
             'rent_amount' => $amount,
-            'increase_frequency_months' => $this->extractIncreaseFrequency($text)
+            'increase_frequency_months' => $this->extractIncreaseFrequency($text),
         ];
     }
 
@@ -342,17 +356,19 @@ class ContractParserService
         $pattern = '/(?:FIADOR|GARANTE)[\s\:]+([A-Z\sÁÉÍÓÚÑ]+?)(?:\s+DNI|[\s\,]+|$)/i';
         preg_match_all($pattern, $text, $matches);
 
-        if (!empty($matches[1])) {
+        if (! empty($matches[1])) {
             foreach ($matches[1] as $index => $name) {
-                if (strlen(trim($name)) < 3)
+                if (strlen(trim($name)) < 3) {
                     continue;
+                }
                 $guarantors[] = [
                     'first_name' => trim($name),
                     'last_name' => '',
-                    'dni' => null // Would need more complex logic to find specific DNIs
+                    'dni' => null, // Would need more complex logic to find specific DNIs
                 ];
             }
         }
+
         return $guarantors;
     }
 
@@ -360,8 +376,9 @@ class ContractParserService
     private function findFirstDniNear($text, $keyword, $preferForward = false)
     {
         $pos = stripos($text, $keyword);
-        if ($pos === false)
+        if ($pos === false) {
             return null;
+        }
 
         // Look around the keyword
         if ($preferForward) {
@@ -377,6 +394,7 @@ class ContractParserService
             // Return the one closest to the name (pos 0 in the substring if preferForward)
             return str_replace(['.', ' '], '', $matches[0][0]);
         }
+
         return null;
     }
 
@@ -390,6 +408,7 @@ class ContractParserService
         if (preg_match('/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,4}/i', $text, $matches)) {
             return $matches[0];
         }
+
         return null;
     }
 
@@ -407,6 +426,7 @@ class ContractParserService
         if (preg_match('/(?:\s|^)(\d{2,4}[\s\-]\d{6,8}|\d{8,12})(?:\s|$)/', $sub, $matches)) {
             return preg_replace('/[^\d]/', '', $matches[1]);
         }
+
         return null;
     }
 
@@ -427,8 +447,9 @@ class ContractParserService
 
         // Fallback: "calle X N 1785" or "calle X S/N" (N without º is common in strings -e l output)
         if (preg_match('/calle\s+([\w\s\xC0-\xFF]+?)\s+(?:N\s+(\d[\w\/]*)|S\/N)/i', $sub, $matches)) {
-            $number = isset($matches[2]) && $matches[2] ? 'N° ' . $matches[2] : 'S/N';
-            return 'calle ' . trim($matches[1]) . ' ' . $number;
+            $number = isset($matches[2]) && $matches[2] ? 'N° '.$matches[2] : 'S/N';
+
+            return 'calle '.trim($matches[1]).' '.$number;
         }
 
         return null;
@@ -445,23 +466,25 @@ class ContractParserService
             $pos = stripos($text, $target);
             $searchIn = $text;
         }
-        if ($pos === false)
+        if ($pos === false) {
             return substr($searchIn, 0, $length);
+        }
 
         $start = max(0, $pos - 150);
+
         return substr($searchIn, $start, $length);
     }
 
     private function getStringsText($filePath)
     {
         // Try both standard and UTF-16LE strings extraction
-        $cmd1 = 'strings "' . $filePath . '"';
-        $cmd2 = 'strings -e l "' . $filePath . '"';
+        $cmd1 = 'strings "'.$filePath.'"';
+        $cmd2 = 'strings -e l "'.$filePath.'"';
 
         $out1 = shell_exec($cmd1) ?: '';
         $out2 = shell_exec($cmd2) ?: '';
 
-        return $out1 . "\n" . $out2;
+        return $out1."\n".$out2;
     }
 
     private function parseSpanishDate($dateStr)
@@ -478,7 +501,7 @@ class ContractParserService
             'septiembre' => '09',
             'octubre' => '10',
             'noviembre' => '11',
-            'diciembre' => '12'
+            'diciembre' => '12',
         ];
 
         $dateStr = trim(strtolower($dateStr));
@@ -486,38 +509,50 @@ class ContractParserService
             $day = str_pad($m[1], 2, '0', STR_PAD_LEFT);
             $month = $months[$m[2]] ?? '01';
             $year = $m[3];
+
             return "$day/$month/$year";
         }
+
         return $dateStr;
     }
 
     private function findLocation($text)
     {
         // Very basic, look for city names or "Ciudad de..."
-        if (preg_match('/Rosario/i', $text))
+        if (preg_match('/Rosario/i', $text)) {
             return 'Rosario';
-        if (preg_match('/Buenos Aires/i', $text))
+        }
+        if (preg_match('/Buenos Aires/i', $text)) {
             return 'Buenos Aires';
-        if (preg_match('/San Cristóbal/i', $text))
+        }
+        if (preg_match('/San Cristóbal/i', $text)) {
             return 'San Cristóbal';
-        if (preg_match('/Huanqueros/i', $text))
+        }
+        if (preg_match('/Huanqueros/i', $text)) {
             return 'Huanqueros';
+        }
+
         return 'Ciudad';
     }
 
     private function extractIncreaseFrequency($text)
     {
         // Look for words like cuatrimestral, semestral, trimestral
-        if (preg_match('/cuatrimestral/i', $text))
+        if (preg_match('/cuatrimestral/i', $text)) {
             return 4;
-        if (preg_match('/semestral/i', $text))
+        }
+        if (preg_match('/semestral/i', $text)) {
             return 6;
-        if (preg_match('/trimestral/i', $text))
+        }
+        if (preg_match('/trimestral/i', $text)) {
             return 3;
-        if (preg_match('/anual/i', $text))
+        }
+        if (preg_match('/anual/i', $text)) {
             return 12;
-        if (preg_match('/cada\s+([0-9]{1,2})\s+meses/i', $text, $m))
+        }
+        if (preg_match('/cada\s+([0-9]{1,2})\s+meses/i', $text, $m)) {
             return (int) $m[1];
+        }
 
         return 6; // Default
     }
@@ -528,7 +563,7 @@ class ContractParserService
         $end = substr($text, -1500);
 
         // Pattern: locadora: (3408577336) or locataria: 3408577336
-        $pattern = '/' . preg_quote($type, '/') . '[\s\:\(\)]+([\d\-\s]{8,15})/i';
+        $pattern = '/'.preg_quote($type, '/').'[\s\:\(\)]+([\d\-\s]{8,15})/i';
         if (preg_match($pattern, $end, $matches)) {
             return preg_replace('/[^\d]/', '', $matches[1]);
         }
@@ -541,6 +576,7 @@ class ContractParserService
                 return $m[1];
             }
         }
+
         return null;
     }
 
@@ -552,10 +588,13 @@ class ContractParserService
             $day = str_pad($parts[0], 2, '0', STR_PAD_LEFT);
             $month = str_pad($parts[1], 2, '0', STR_PAD_LEFT);
             $year = $parts[2];
-            if (strlen($year) === 2)
-                $year = '20' . $year;
+            if (strlen($year) === 2) {
+                $year = '20'.$year;
+            }
+
             return "$year-$month-$day";
         }
+
         return $dateStr;
     }
 }

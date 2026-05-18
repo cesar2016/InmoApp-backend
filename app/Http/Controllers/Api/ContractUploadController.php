@@ -5,8 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Services\AiContractParserService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 class ContractUploadController extends Controller
 {
@@ -26,7 +27,7 @@ class ContractUploadController extends Controller
         $file = $request->file('file');
         $extension = $file->getClientOriginalExtension();
         Log::info('Contrato upload: formato detectado', ['extension' => $extension]);
-        $path = $file->storeAs('temp_contracts', time() . '_' . $file->getClientOriginalName());
+        $path = $file->storeAs('temp_contracts', time().'_'.$file->getClientOriginalName());
         $fullPath = \Storage::disk('local')->path($path);
         \Log::info('Contrato upload: guardado temporal', [
             'path' => $path,
@@ -42,20 +43,21 @@ class ContractUploadController extends Controller
             // DO NOT clean up temp file here, it will be moved during Contract@store
             // Storage::delete($path);
 
-        return response()->json([
+            return response()->json([
                 'success' => true,
                 'data' => array_merge($data, ['temp_file' => $path, 'extension' => $extension]),
-                'message' => 'Documento procesado con éxito'
+                'message' => 'Documento procesado con éxito',
             ]);
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             Storage::delete($path);
-            \Log::error('Error processing contract file: ' . $e->getMessage(), [
+            \Log::error('Error processing contract file: '.$e->getMessage(), [
                 'exception' => $e,
-                'file' => $file->getClientOriginalName()
+                'file' => $file->getClientOriginalName(),
             ]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error al procesar el documento: ' . $e->getMessage()
+                'message' => 'Error al procesar el documento: '.$e->getMessage(),
             ], 422);
         }
     }
