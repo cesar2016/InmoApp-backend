@@ -23,6 +23,12 @@ RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
 # Get latest Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
+# Get Node.js/npm (composer post-autoload-dump runs npm install)
+COPY --from=node:22 /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:22 /usr/local/bin/npm /usr/local/bin/npm
+COPY --from=node:22 /usr/local/bin/npx /usr/local/bin/npx
+COPY --from=node:22 /usr/local/lib/node_modules /usr/local/lib/node_modules
+
 # Set working directory
 WORKDIR /var/www
 
