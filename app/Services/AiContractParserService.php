@@ -130,12 +130,8 @@ class AiContractParserService
                 continue;
             }
 
-            if ($this->shouldPreferLocal($key) && $localValue !== null && $localValue !== '' && $localValue !== []) {
-                $aiResult[$key] = $localValue;
-
-                continue;
-            }
-
+            // Prefer the AI result: local regex values only backfill fields the AI
+            // left empty, so a misbehaving regex can't override correct AI data.
             if ($aiResult[$key] === null || $aiResult[$key] === '' || $aiResult[$key] === []) {
                 $aiResult[$key] = $localValue;
             }
@@ -158,11 +154,6 @@ class AiContractParserService
         }
 
         return $aiResult;
-    }
-
-    private function shouldPreferLocal(string $key): bool
-    {
-        return in_array($key, ['first_name', 'last_name', 'start_date', 'end_date', 'rent_amount', 'increase_frequency_months'], true);
     }
 
     private function normalizeResult(array $data): array
