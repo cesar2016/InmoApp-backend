@@ -9,11 +9,11 @@ return new class extends Migration
     /**
      * Run the migrations.
      */
-    public function run(): void
+    public function up(): void
     {
         Schema::table('guarantors', function (Blueprint $table) {
             if (Schema::hasColumn('guarantors', 'contract_id')) {
-                $table->dropForeign('guarantors_contract_id_foreign');
+                $table->dropForeign(['contract_id']);
                 $table->dropColumn('contract_id');
             }
             if (! Schema::hasColumn('guarantors', 'tenant_id')) {

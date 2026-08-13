@@ -34,8 +34,8 @@ class ContractController extends Controller
         ]);
 
         return DB::transaction(function () use ($request, $validated) {
-            $propertyId = $validated['property_id'];
-            $tenantId = $validated['tenant_id'];
+            $propertyId = $validated['property_id'] ?? $request->input('property_id');
+            $tenantId = $validated['tenant_id'] ?? $request->input('tenant_id');
 
             // 1. Handle Tenant Creation if needed
             if (! $tenantId && $request->has('tenant_data')) {
