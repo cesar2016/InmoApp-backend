@@ -97,6 +97,20 @@ class AiContractParserServiceTest extends TestCase
         @unlink($path);
     }
 
+    public function test_normalizes_property_type_to_valid_values(): void
+    {
+        $service = new AiContractParserService(new FailingProvider);
+
+        $departamento = $service->parseFromText('Contrato de locación de un departamento sito en calle Salta 224.');
+        $this->assertSame('Departamento', $departamento['property']['type']);
+
+        $ph = $service->parseFromText('Tipo: PH. Contrato de locación.');
+        $this->assertSame('Otro', $ph['property']['type']);
+
+        $galpon = $service->parseFromText('Tipo: Galpón. Contrato de locación.');
+        $this->assertSame('Otro', $galpon['property']['type']);
+    }
+
     public function test_merge_clears_ai_contact_data_copied_to_the_wrong_party(): void
     {
         $text = 'CONTRATO DE LOCACIÓN '.

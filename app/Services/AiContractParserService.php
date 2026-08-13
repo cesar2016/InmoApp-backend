@@ -158,7 +158,7 @@ class AiContractParserService
 
     private function normalizeResult(array $data): array
     {
-        return [
+        $result = [
             'tenant' => $data['tenant'] ?? [
                 'first_name' => null, 'last_name' => null, 'dni' => null,
                 'address' => null, 'whatsapp' => null, 'email' => null,
@@ -177,6 +177,23 @@ class AiContractParserService
             ],
             'guarantors' => $data['guarantors'] ?? [],
         ];
+
+        $result['property']['type'] = $this->normalizePropertyType($result['property']['type'] ?? null);
+
+        return $result;
+    }
+
+    public static function normalizePropertyType(?string $type): string
+    {
+        $type = trim((string) $type);
+
+        if (in_array(strtolower($type), ['departamento', 'dpto', 'depto'], true)) {
+            return 'Departamento';
+        }
+
+        $valid = ['Casa', 'Local', 'Cochera', 'Oficina', 'Otro'];
+
+        return in_array($type, $valid, true) ? $type : 'Otro';
     }
 
     public function extractText($filePath, $extension): string

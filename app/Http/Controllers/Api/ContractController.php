@@ -7,6 +7,7 @@ use App\Models\Contract;
 use App\Models\Owner;
 use App\Models\Property;
 use App\Models\Tenant;
+use App\Services\AiContractParserService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -80,7 +81,7 @@ class ContractController extends Controller
                 $propertyData = $request->property_data;
                 $propertyData['owner_id'] = $ownerId;
                 // Default values for required fields based on DB schema
-                $propertyData['type'] = $propertyData['type'] ?? 'Dpto';
+                $propertyData['type'] = AiContractParserService::normalizePropertyType($propertyData['type'] ?? null);
                 $propertyData['real_estate_id'] = $propertyData['real_estate_id'] ?? 'S/D '.now()->timestamp;
                 $propertyData['domain'] = $propertyData['domain'] ?? 'S/D';
                 $propertyData['location'] = $propertyData['location'] ?? 'S/D';
