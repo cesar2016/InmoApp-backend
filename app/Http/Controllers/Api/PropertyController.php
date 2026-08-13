@@ -8,9 +8,25 @@ use Illuminate\Http\Request;
 
 class PropertyController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        return response()->json(Property::with(['owner', 'activeContract.tenant'])->get());
+        $query = Property::with(['owner', 'activeContract.tenant'])->latest();
+
+        if ($request->has('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('street', 'like', "%{$search}%")
+                    ->orWhere('number', 'like', "%{$search}%")
+                    ->orWhere('location', 'like', "%{$search}%")
+                    ->orWhere('real_estate_id', 'like', "%{$search}%")
+                    ->orWhereHas('owner', function ($q) use ($search) {
+                        $q->where('first_name', 'like', "%{$search}%")
+                            ->orWhere('last_name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        return response()->json($query->paginate(10));
     }
 
     public function store(Request $request)

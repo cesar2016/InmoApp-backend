@@ -3,14 +3,29 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Guarantor;
 use App\Models\Tenant;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 
 class TenantController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        return response()->json(Tenant::with(['contracts.property', 'guarantors'])->get());
+        $query = Tenant::with(['contracts.property', 'guarantors'])->latest();
+
+        if ($request->has('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('first_name', 'like', "%{$search}%")
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhere('dni', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('whatsapp', 'like', "%{$search}%");
+            });
+        }
+
+        return response()->json($query->paginate(10));
     }
 
     public function store(Request $request)
@@ -33,20 +48,21 @@ class TenantController extends Controller
 
         if ($validator->fails()) {
             \Log::error('Tenant Validation Errors:', $validator->errors()->toArray());
+
             return response()->json(['message' => 'The given data was invalid.', 'errors' => $validator->errors()], 422);
         }
 
         $validated = $validator->validated();
 
         return \DB::transaction(function () use ($validated) {
-            $tenantData = \Illuminate\Support\Arr::except($validated, ['property_id', 'rent_amount', 'start_date', 'end_date', 'increase_frequency_months', 'guarantor_ids']);
+            $tenantData = Arr::except($validated, ['property_id', 'rent_amount', 'start_date', 'end_date', 'increase_frequency_months', 'guarantor_ids']);
             $tenant = Tenant::create($tenantData);
 
-            if (!empty($validated['guarantor_ids'])) {
-                \App\Models\Guarantor::whereIn('id', $validated['guarantor_ids'])->update(['tenant_id' => $tenant->id]);
+            if (! empty($validated['guarantor_ids'])) {
+                Guarantor::whereIn('id', $validated['guarantor_ids'])->update(['tenant_id' => $tenant->id]);
             }
 
-            if (!empty($validated['property_id'])) {
+            if (! empty($validated['property_id'])) {
                 $tenant->contracts()->create([
                     'property_id' => $validated['property_id'],
                     'rent_amount' => $validated['rent_amount'],
@@ -74,7 +90,7 @@ class TenantController extends Controller
             'dni' => 'sometimes',
             'address' => 'sometimes',
             'whatsapp' => 'sometimes',
-            'email' => 'sometimes|email|unique:tenants,email,' . $tenant->id,
+            'email' => 'sometimes|email|unique:tenants,email,'.$tenant->id,
             'property_id' => 'nullable|exists:properties,id',
             'rent_amount' => 'nullable|numeric|required_with:property_id',
             'start_date' => 'nullable|date|required_with:property_id',
@@ -86,23 +102,24 @@ class TenantController extends Controller
 
         if ($validator->fails()) {
             \Log::error('Tenant Update Validation Errors:', $validator->errors()->toArray());
+
             return response()->json(['message' => 'The given data was invalid.', 'errors' => $validator->errors()], 422);
         }
 
         $validated = $validator->validated();
 
         return \DB::transaction(function () use ($validated, $tenant) {
-            $tenantData = \Illuminate\Support\Arr::except($validated, ['property_id', 'rent_amount', 'start_date', 'end_date', 'increase_frequency_months', 'guarantor_ids']);
+            $tenantData = Arr::except($validated, ['property_id', 'rent_amount', 'start_date', 'end_date', 'increase_frequency_months', 'guarantor_ids']);
             $tenant->update($tenantData);
 
             if (isset($validated['guarantor_ids'])) {
                 // Remove old links
-                \App\Models\Guarantor::where('tenant_id', $tenant->id)->update(['tenant_id' => null]);
+                Guarantor::where('tenant_id', $tenant->id)->update(['tenant_id' => null]);
                 // Add new links
-                \App\Models\Guarantor::whereIn('id', $validated['guarantor_ids'])->update(['tenant_id' => $tenant->id]);
+                Guarantor::whereIn('id', $validated['guarantor_ids'])->update(['tenant_id' => $tenant->id]);
             }
 
-            if (!empty($validated['property_id'])) {
+            if (! empty($validated['property_id'])) {
                 // If there's an active contract for a DIFFERENT property, we might want to close it?
                 // The prompt says "vincularla (o sea alquilar)", so we'll create a new contract.
                 $tenant->contracts()->where('is_active', true)->update(['is_active' => false]);

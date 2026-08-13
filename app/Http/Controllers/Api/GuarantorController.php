@@ -14,6 +14,7 @@ class GuarantorController extends Controller
         if ($request->has('tenant_id')) {
             $query->where('tenant_id', $request->tenant_id);
         }
+
         return response()->json($query->get());
     }
 
@@ -30,6 +31,7 @@ class GuarantorController extends Controller
         ]);
 
         $guarantor = Guarantor::create($validated);
+
         return response()->json($guarantor, 201);
     }
 
@@ -50,12 +52,14 @@ class GuarantorController extends Controller
         ]);
 
         $guarantor->update($validated);
+
         return response()->json($guarantor);
     }
 
     public function destroy(Guarantor $guarantor)
     {
         $guarantor->delete();
+
         return response()->json(['message' => 'Guarantor deleted']);
     }
 }

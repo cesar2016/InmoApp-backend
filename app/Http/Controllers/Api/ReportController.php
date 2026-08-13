@@ -3,11 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Payment;
 use App\Models\Contract;
 use App\Models\Maintenance;
-use Illuminate\Http\Request;
+use App\Models\Owner;
+use App\Models\Payment;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 
 class ReportController extends Controller
 {
@@ -40,7 +41,7 @@ class ReportController extends Controller
             'expenses' => $expenses,
             'balance' => $income - $expenses,
             'type' => $type,
-            'date' => $date
+            'date' => $date,
         ]);
     }
 
@@ -62,6 +63,7 @@ class ReportController extends Controller
             ->filter(function ($contract) use ($today) {
                 $baseDate = $contract->last_increase_date ? Carbon::parse($contract->last_increase_date) : Carbon::parse($contract->start_date);
                 $nextIncrease = $baseDate->addMonths($contract->increase_frequency_months);
+
                 return $today->greaterThanOrEqualTo($nextIncrease);
             });
 
@@ -78,7 +80,7 @@ class ReportController extends Controller
         return response()->json([
             'expiring_contracts' => $expiringContracts,
             'increase_alerts' => $increaseAlerts->values(),
-            'missing_payments' => $missingPayments
+            'missing_payments' => $missingPayments,
         ]);
     }
 
@@ -87,7 +89,7 @@ class ReportController extends Controller
         $month = $request->get('month', Carbon::now()->month);
         $year = $request->get('year', Carbon::now()->year);
 
-        $owner = \App\Models\Owner::findOrFail($owner_id);
+        $owner = Owner::findOrFail($owner_id);
         $properties = $owner->properties()->pluck('id');
 
         $contracts = Contract::whereIn('property_id', $properties)->pluck('id');
@@ -118,7 +120,7 @@ class ReportController extends Controller
             'total_rent' => $totalRent,
             'total_expenses' => $totalExpenses,
             'commission' => $commission,
-            'net_amount' => $totalRent - $totalExpenses - $commission
+            'net_amount' => $totalRent - $totalExpenses - $commission,
         ]);
     }
 }

@@ -26,10 +26,10 @@ class GuarantorSeeder extends Seeder
             Guarantor::create([
                 'first_name' => $names[$i],
                 'last_name' => $surnames[$i],
-                'dni' => 'G' . rand(10000000, 99999999),
-                'address' => 'Calle Garante ' . ($i + 1),
-                'whatsapp' => '+54911' . rand(10000000, 99999999),
-                'email' => strtolower($names[$i]) . '@gmail.com',
+                'dni' => 'G'.rand(10000000, 99999999),
+                'address' => 'Calle Garante '.($i + 1),
+                'whatsapp' => '+54911'.rand(10000000, 99999999),
+                'email' => strtolower($names[$i]).'@gmail.com',
                 'tenant_id' => $tenants->random()->id,
             ]);
         }

@@ -24,17 +24,23 @@ class AiContractParserService
         $this->providers = $providers;
     }
 
-    public function parse(string $filePath, string $extension): array
+    public function parse(string $filePath, string $extension, ?string $providerName = null): array
     {
         $this->stringsText = '';
         $text = $this->extractText($filePath, $extension);
+        Log::info('AiContractParser: texto extraído', [
+            'length' => strlen($text),
+            'extension' => $extension,
+            'preview' => Str::limit($text, 100),
+        ]);
         $plainText = preg_replace('/\s+/', ' ', $text);
 
-        if (mb_strlen(trim($plainText)) < 40) {
-            throw new \RuntimeException('No se pudo extraer texto del documento. Si es un PDF escaneado, convertílo a texto o DOCX antes de subirlo.');
+        if (mb_strlen(trim($plainText)) < 1) {
+            Log::warning('AiContractParser: No se pudo extraer texto, intentando solo con prompt');
+            $plainText = '[El documento no contiene texto legible por OCR estándar]';
         }
 
-        $result = $this->parseWithFallback($plainText);
+        $result = $this->parseWithFallback($plainText, $providerName);
 
         $result['plain_text'] = $plainText;
         $result['raw_text_preview'] = Str::limit($plainText, 500);
@@ -42,9 +48,20 @@ class AiContractParserService
         return $result;
     }
 
-    private function parseWithFallback(string $plainText): array
+    public function parseFromText(string $text, ?string $providerName = null): array
     {
-        $localResult = (new ContractParserService)->parseText($plainText);
+        $plainText = preg_replace('/\s+/', ' ', $text);
+        $result = $this->parseWithFallback($plainText, $providerName);
+
+        $result['plain_text'] = $plainText;
+        $result['raw_text_preview'] = Str::limit($plainText, 500);
+
+        return $result;
+    }
+
+    private function parseWithFallback(string $plainText, ?string $providerName = null): array
+    {
+        $localResult = (new LocalContractParserService)->parseText($plainText);
         $minRemoteTextLength = config('ai-parser.min_remote_text_length', 120);
 
         if (mb_strlen(trim($plainText)) < $minRemoteTextLength) {
@@ -56,6 +73,25 @@ class AiContractParserService
         }
 
         $lastException = null;
+
+        // If a specific provider is requested, try only that one
+        if ($providerName) {
+            foreach ($this->providers as $provider) {
+                if ($provider->getName() === $providerName) {
+                    try {
+                        Log::info('AiContractParser: intentando con proveedor solicitado '.$provider->getName());
+                        $result = $provider->parseContract(Str::limit($plainText, self::MAX_LLM_TEXT_LENGTH, ''));
+
+                        return $this->normalizeResult($this->mergeWithLocal($result, $localResult));
+                    } catch (\Throwable $e) {
+                        Log::warning('AiContractParser: proveedor solicitado '.$provider->getName().' falló: '.$e->getMessage());
+                        // Fall back to local parser instead of throwing
+                        break;
+                    }
+                }
+            }
+        }
+
         $providerLimit = max(0, (int) config('ai-parser.remote_provider_limit', 2));
         $providers = $providerLimit > 0 ? array_slice($this->providers, 0, $providerLimit) : [];
 
@@ -65,7 +101,7 @@ class AiContractParserService
                 $result = $provider->parseContract(Str::limit($plainText, self::MAX_LLM_TEXT_LENGTH, ''));
                 Log::info('AiContractParser: proveedor '.$provider->getName().' respondió exitosamente');
 
-                return $this->normalizeResult($result);
+                return $this->normalizeResult($this->mergeWithLocal($result, $localResult));
             } catch (\Throwable $e) {
                 $lastException = $e;
                 Log::warning('AiContractParser: proveedor '.$provider->getName().' falló: '.$e->getMessage());
@@ -77,6 +113,56 @@ class AiContractParserService
         ]);
 
         return $this->normalizeResult($localResult);
+    }
+
+    private function mergeWithLocal(array $aiResult, array $localResult): array
+    {
+        foreach ($localResult as $key => $localValue) {
+            if (! array_key_exists($key, $aiResult)) {
+                $aiResult[$key] = $localValue;
+
+                continue;
+            }
+
+            if (is_array($localValue) && is_array($aiResult[$key])) {
+                $aiResult[$key] = $this->mergeWithLocal($aiResult[$key], $localValue);
+
+                continue;
+            }
+
+            if ($this->shouldPreferLocal($key) && $localValue !== null && $localValue !== '' && $localValue !== []) {
+                $aiResult[$key] = $localValue;
+
+                continue;
+            }
+
+            if ($aiResult[$key] === null || $aiResult[$key] === '' || $aiResult[$key] === []) {
+                $aiResult[$key] = $localValue;
+            }
+        }
+
+        // Guard against a common AI hallucination: copying one party's contact
+        // details (email/phone) onto the other party.
+        foreach (['tenant', 'owner'] as $party) {
+            $other = $party === 'tenant' ? 'owner' : 'tenant';
+            if (! isset($aiResult[$party], $aiResult[$other])) {
+                continue;
+            }
+            foreach (['email', 'whatsapp'] as $contactField) {
+                $aiValue = $aiResult[$party][$contactField] ?? null;
+                $otherLocalValue = $localResult[$other][$contactField] ?? null;
+                if ($otherLocalValue && $aiValue && $aiValue === $otherLocalValue) {
+                    $aiResult[$party][$contactField] = '';
+                }
+            }
+        }
+
+        return $aiResult;
+    }
+
+    private function shouldPreferLocal(string $key): bool
+    {
+        return in_array($key, ['first_name', 'last_name', 'start_date', 'end_date', 'rent_amount', 'increase_frequency_months'], true);
     }
 
     private function normalizeResult(array $data): array
@@ -102,7 +188,7 @@ class AiContractParserService
         ];
     }
 
-    private function extractText($filePath, $extension): string
+    public function extractText($filePath, $extension): string
     {
         $extension = strtolower($extension);
 
@@ -163,7 +249,30 @@ class AiContractParserService
                     if (basename($name) === 'content.xml') {
                         $contents = $zip->getFromIndex($i);
                         if ($contents) {
-                            $text = strip_tags($contents);
+                            // ODT stores spaces as empty <text:s/> elements (no text node), so
+                            // textContent silently drops them between styled runs ("calleSan
+                            // Martin"). Convert semantic whitespace to literal characters first.
+                            $contents = preg_replace_callback('/<text:s(?:\s+text:c="(\d+)")?\s*\/>/u', function ($m) {
+                                return str_repeat(' ', (int) ($m[1] ?? 1));
+                            }, $contents);
+                            $contents = preg_replace('/<text:tab(?:\s+[^>]*)?\/>/u', "\t", $contents);
+                            $contents = preg_replace('/<text:line-break(?:\s+[^>]*)?\/>/u', "\n", $contents);
+
+                            $dom = new \DOMDocument;
+                            $dom->loadXML($contents, LIBXML_NOENT | LIBXML_XINCLUDE | LIBXML_NOERROR | LIBXML_NOWARNING);
+                            $xpath = new \DOMXPath($dom);
+                            $xpath->registerNamespace('text', 'urn:oasis:names:tc:opendocument:xmlns:text:1.0');
+
+                            // Paragraphs and headings only; spans would duplicate their text
+                            $nodes = $xpath->query('//text:p | //text:h');
+                            foreach ($nodes as $node) {
+                                $text .= trim($node->textContent)."\n";
+                            }
+
+                            // Also try getting all text if xpath returns nothing
+                            if (trim($text) === '') {
+                                $text = strip_tags($contents);
+                            }
                         }
                         break;
                     }

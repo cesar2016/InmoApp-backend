@@ -23,6 +23,37 @@ class OllamaProvider extends BaseLLMProvider
         return 'ollama';
     }
 
+    public function chat(string $prompt, ?string $systemPrompt = null): string
+    {
+        $response = Http::connectTimeout(min(5, $this->timeout))
+            ->timeout($this->timeout)
+            ->acceptJson()
+            ->asJson()
+            ->withHeaders([
+                'Authorization' => 'Bearer '.$this->apiKey,
+            ])
+            ->post($this->baseUrl.'/chat', [
+                'model' => $this->model,
+                'stream' => false,
+                'messages' => [
+                    ['role' => 'system', 'content' => $systemPrompt ?: 'Eres un asistente útil.'],
+                    ['role' => 'user', 'content' => $prompt],
+                ],
+                'options' => [
+                    'temperature' => $this->temperature,
+                    'num_predict' => $this->maxTokens,
+                ],
+            ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('Error de API Ollama: '.$response->body());
+        }
+
+        $body = $response->json();
+
+        return $body['message']['content'] ?? '';
+    }
+
     private function callOllamaAPI(string $userText): ?string
     {
         $response = Http::connectTimeout(min(5, $this->timeout))

@@ -21,66 +21,28 @@ abstract class BaseLLMProvider implements LLMProviderInterface
     protected int $timeout;
 
     protected const SYSTEM_PROMPT = <<<'PROMPT'
-Eres un asistente experto en extraer datos de contratos de alquiler de Argentina.
-Analiza el texto del contrato y extrae la información en formato JSON.
-Devuelve SOLO el JSON sin explicaciones ni markdown.
+Eres un asistente experto legal especializado en el mercado inmobiliario argentino. Tu tarea es extraer información estructurada de contratos de locación (alquiler) de vivienda o comercio.
 
-El JSON debe seguir esta estructura exacta:
+INSTRUCCIONES CRÍTICAS:
+1. **LOCADOR = owner (Dueño/Propietario)**, **LOCATARIO = tenant (Inquilino/Arrendatario)**. No los confundas. En Argentina: "Locador" da en alquiler, "Locatario" recibe en alquiler.
+2. Extrae nombres, apellidos y DNI limpios (solo números para DNI).
+3. En "property" (inmueble), separa calle y número. Si hay múltiples inmuebles, usa el principal (vivienda). Tipo: "Casa", "Dpto", "Local", "Otro".
+4. Para "contract":
+   - start_date y end_date en formato ISO (YYYY-MM-DD). Convierte fechas como "1 de Junio de 2026" → "2026-06-01".
+   - rent_amount: monto del primer mes como número entero (sin puntos de miles, sin $).
+   - increase_frequency_months: cada cuántos meses se ajusta. Palabras clave: "mensual"=1, "bimestral"=2, "trimestral"=3, "cuatrimestral"=4, "semestral"=6, "anual"=12. Si dice "ICL" o "IPC" sin período, asume 4 (cuatrimestral, común en Argentina).
+5. "guarantors": Busca fiadores, codeudores solidarios, garantes. Incluye todos con nombre, apellido, DNI, dirección.
+6. Si un dato no figura, usa null. No inventes.
+7. Devuelve EXCLUSIVAMENTE un objeto JSON válido.
+
+ESTRUCTURA DE RESPUESTA:
 {
-  "tenant": {
-    "first_name": "...",
-    "last_name": "...",
-    "dni": "...",
-    "address": "...",
-    "whatsapp": "...",
-    "email": "..."
-  },
-  "owner": {
-    "first_name": "...",
-    "last_name": "...",
-    "dni": "...",
-    "address": "...",
-    "whatsapp": "...",
-    "email": "..."
-  },
-  "property": {
-    "street": "...",
-    "number": "...",
-    "floor": "...",
-    "dept": "...",
-    "location": "...",
-    "type": "..."
-  },
-  "contract": {
-    "start_date": "...",
-    "end_date": "...",
-    "rent_amount": 0,
-    "increase_frequency_months": 0
-  },
-  "guarantors": [
-    {
-      "first_name": "...",
-      "last_name": "...",
-      "dni": "...",
-      "address": "...",
-      "whatsapp": "...",
-      "email": "..."
-    }
-  ]
+  "tenant": { "first_name": "...", "last_name": "...", "dni": "...", "address": "...", "whatsapp": null, "email": null },
+  "owner": { "first_name": "...", "last_name": "...", "dni": "...", "address": "...", "whatsapp": null, "email": null },
+  "property": { "street": "...", "number": "...", "floor": null, "dept": null, "location": "...", "type": "Casa|Dpto|Local|Otro" },
+  "contract": { "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD", "rent_amount": 0, "increase_frequency_months": 0 },
+  "guarantors": [ { "first_name": "...", "last_name": "...", "dni": "...", "address": "..." } ]
 }
-
-Reglas:
-- LOCATARIO/LOCATARIA = tenant (inquilino)
-- LOCADOR/LOCADORA = owner (propietario)
-- Fecha inicio: "desde el día X de mes de año"
-- Fecha fin: "hasta el día X de mes de año"
-- Formato fechas: YYYY-MM-DD
-- rent_amount: solo el número, sin puntos, sin símbolos
-- increase_frequency_months: 3 (trimestral), 4 (cuatrimestral), 6 (semestral), 12 (anual)
-- type: Casa, Dpto, Local, Otro, PH, Lote, Galpón
-- Si un campo no se encuentra, devolver null
-- Los guarantors pueden ser 0 o más, siempre como array
-- whatsapp: solo dígitos sin espacios ni guiones
 PROMPT;
 
     public function __construct(array $config)
@@ -91,6 +53,34 @@ PROMPT;
         $this->maxTokens = $config['max_tokens'] ?? 2000;
         $this->temperature = $config['temperature'] ?? 0.1;
         $this->timeout = $config['request_timeout'] ?? 12;
+    }
+
+    public function chat(string $prompt, ?string $systemPrompt = null): string
+    {
+        $response = Http::connectTimeout(min(5, $this->timeout))
+            ->timeout($this->timeout)
+            ->acceptJson()
+            ->asJson()
+            ->withHeaders([
+                'Authorization' => 'Bearer '.$this->apiKey,
+            ])
+            ->post($this->baseUrl.'/chat/completions', [
+                'model' => $this->model,
+                'messages' => [
+                    ['role' => 'system', 'content' => $systemPrompt ?: 'Eres un asistente útil.'],
+                    ['role' => 'user', 'content' => $prompt],
+                ],
+                'max_tokens' => $this->maxTokens,
+                'temperature' => $this->temperature,
+            ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('Error de API '.$this->getName().': '.$response->body());
+        }
+
+        $body = $response->json();
+
+        return $body['choices'][0]['message']['content'] ?? '';
     }
 
     protected function callAPI(string $userText): ?string

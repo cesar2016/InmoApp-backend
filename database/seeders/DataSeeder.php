@@ -2,10 +2,10 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
 use App\Models\Owner;
 use App\Models\Property;
 use Faker\Factory as Faker;
+use Illuminate\Database\Seeder;
 
 class DataSeeder extends Seeder
 {
@@ -72,8 +72,8 @@ class DataSeeder extends Seeder
     {
         Property::create([
             'type' => $type,
-            'real_estate_id' => 'PART-' . $faker->unique()->randomNumber(6),
-            'domain' => 'DOM-' . $faker->unique()->randomNumber(6),
+            'real_estate_id' => 'PART-'.$faker->unique()->randomNumber(6),
+            'domain' => 'DOM-'.$faker->unique()->randomNumber(6),
             'street' => $faker->streetName,
             'number' => $faker->buildingNumber,
             'floor' => $type === 'Dpto' ? rand(1, 10) : null,

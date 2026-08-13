@@ -8,9 +8,23 @@ use Illuminate\Http\Request;
 
 class OwnerController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        return response()->json(Owner::with('properties')->get());
+        $query = Owner::with('properties')->latest();
+
+        if ($request->has('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('first_name', 'like', "%{$search}%")
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhere('dni', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('address', 'like', "%{$search}%")
+                    ->orWhere('whatsapp', 'like', "%{$search}%");
+            });
+        }
+
+        return response()->json($query->paginate(10));
     }
 
     public function store(Request $request)
@@ -39,10 +53,10 @@ class OwnerController extends Controller
         $validated = $request->validate([
             'first_name' => 'sometimes|string',
             'last_name' => 'sometimes|string',
-            'dni' => 'sometimes|string|unique:owners,dni,' . $owner->id,
+            'dni' => 'sometimes|string|unique:owners,dni,'.$owner->id,
             'address' => 'sometimes|string',
             'whatsapp' => 'sometimes|string',
-            'email' => 'sometimes|email|unique:owners,email,' . $owner->id,
+            'email' => 'sometimes|email|unique:owners,email,'.$owner->id,
         ]);
 
         $owner->update($validated);
