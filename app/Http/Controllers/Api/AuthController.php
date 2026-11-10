@@ -24,6 +24,13 @@ class AuthController extends Controller
             ], 401);
         }
 
+        if ($user->isBanned()) {
+            return response()->json([
+                'message' => 'Su periodo de prueba GRATUITO ha caducado, póngase en contacto con el Server Administrator',
+                'code' => 'payment_expired',
+            ], 403);
+        }
+
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([

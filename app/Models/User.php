@@ -28,6 +28,12 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'banned_at' => 'datetime',
         ];
+    }
+
+    public function isBanned(): bool
+    {
+        return $this->banned_at !== null;
     }
 }
