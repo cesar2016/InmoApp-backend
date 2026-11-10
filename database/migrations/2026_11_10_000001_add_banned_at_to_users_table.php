@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasColumn('users', 'banned_at')) {
+            return;
+        }
+
         Schema::table('users', function (Blueprint $table) {
             $table->timestamp('banned_at')->nullable()->after('password');
         });
@@ -15,8 +19,10 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->dropColumn('banned_at');
-        });
+        if (Schema::hasColumn('users', 'banned_at')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->dropColumn('banned_at');
+            });
+        }
     }
 };
